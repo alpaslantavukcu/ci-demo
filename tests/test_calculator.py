@@ -1,6 +1,6 @@
 import pytest
 
-from calculator import add, divide, fizzbuzz, is_palindrome
+from calculator import add, divide, fizzbuzz, is_palindrome, multiply
 
 
 def test_add():
@@ -14,6 +14,10 @@ def test_divide():
 def test_divide_by_zero():
     with pytest.raises(ValueError):
         divide(1, 0)
+
+
+def test_multiply():
+    assert multiply(2, 3) == 6
 
 
 @pytest.mark.parametrize(
