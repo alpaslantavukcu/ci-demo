@@ -1,78 +1,133 @@
+# =====================================================================
+# CI/CD pipeline for ci-demo
+#
+# Every YAML file in .github/workflows/ is a workflow. GitHub reads it
+# and runs it whenever one of the events listed under "on:" happens.
+#
+#   lint  ->  test (3 Python versions)  ->  deploy-report
+#   \_______ CI: every push and PR ______/   \_ CD: main only _/
+# =====================================================================
+
+# Name shown in the Actions tab and in the README status badge.
 name: CI
 
+# ---------------------------------------------------------------------
+# WHEN does it run?  Events (triggers)
+# ---------------------------------------------------------------------
 on:
   push:
-    branches: [main]
+    branches: [main]      # a commit lands on main (e.g. after a merge)
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main]      # a PR into main is opened or gets new commits
+  workflow_dispatch:      # adds a "Run workflow" button to the Actions tab
 
-# Least privilege by default: jobs can only read the repository.
+# ---------------------------------------------------------------------
+# WHAT may it do?  Rights of the automatic GITHUB_TOKEN.
+# Least privilege: by default every job may only READ the repository.
+# A job that needs more asks for it itself (see deploy-report below).
+# ---------------------------------------------------------------------
 permissions:
   contents: read
 
-# A new push to the same PR cancels the older, now-useless run.
-# Runs on main are never cancelled, so a deploy is never cut off halfway.
+# Push to the same PR again while CI is still running, and the older,
+# now useless run is cancelled. Runs on main are never cancelled,
+# so a deployment is never cut off halfway.
+# ${{ ... }} is an expression: GitHub computes its value for each run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# ---------------------------------------------------------------------
+# HOW?  Jobs. Each job runs on its own fresh virtual machine (a runner).
+# Jobs run in parallel unless "needs:" makes one wait for another.
+# ---------------------------------------------------------------------
 jobs:
+
+  # ---- Job 1: lint. The cheapest check runs first (fail fast) --------
   lint:
-    runs-on: ubuntu-latest
-    steps:
+    runs-on: ubuntu-latest        # the runner: a brand-new Ubuntu VM
+    steps:                        # steps run in order, top to bottom
+      # "uses:" runs a ready-made action from the GitHub Marketplace.
+      # checkout copies the repository onto the runner (it starts empty).
       - uses: actions/checkout@v7
+
+      # Install Python. "with:" passes inputs to the action.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
-          cache: pip
+          python-version: "3.14"  # quote versions: unquoted 3.10 is 3.1
+          cache: pip              # reuse downloaded packages next run
           cache-dependency-path: requirements-dev.txt
+
+      # "run:" runs a shell command, exactly like in your terminal.
+      # "name:" is only the label shown in the run's log.
       - name: Install dev dependencies
         run: python -m pip install -r requirements-dev.txt
+
+      # --output-format=github puts each error on the PR's changed line.
       - name: Lint (ruff)
         run: ruff check --output-format=github .
+
+      # Fails if any file is not formatted the way ruff expects.
       - name: Check formatting (ruff)
         run: ruff format --check .
 
+  # ---- Job 2: test. Runs only if lint passed --------------------------
   test:
-    needs: lint
+    needs: lint                   # wait for lint; skipped if lint fails
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false            # let every Python version finish
       matrix:
+        # One job definition, three parallel jobs:
+        # test (3.12), test (3.13) and test (3.14).
+        # These are the check names the branch ruleset requires.
         python-version: ["3.12", "3.13", "3.14"]
     steps:
+      # A new machine again, so check out and install Python again.
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python-version }}  # this copy's one
           cache: pip
           cache-dependency-path: requirements-dev.txt
+
       - name: Install dev dependencies
         run: python -m pip install -r requirements-dev.txt
+
+      # A failing test makes pytest exit with an error code,
+      # and any step that exits with an error turns the job red.
       - name: Run tests with coverage
         run: pytest --cov=calculator --cov-report=term-missing --cov-report=html
+
+      # An artifact is a file kept after the run: download it from the
+      # run's Summary page. "if:" runs this step on the 3.14 copy only.
       - name: Upload coverage report (one matrix leg only)
         if: matrix.python-version == '3.14'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: htmlcov/
-          retention-days: 7
+          retention-days: 7       # deleted automatically after a week
 
+  # ---- Job 3: deploy-report. CD: publish the coverage report ----------
   deploy-report:
-    # CD: runs only after every test leg passed, and only on pushes to main
-    # (that is, after a pull request has been merged).
-    needs: test
+    needs: test                   # only after ALL three test jobs pass
+    # Deploy only for a push to main, i.e. after a PR has been merged.
+    # On a pull request this job shows as "skipped".
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # The only job allowed to write: it publishes to GitHub Pages.
+    # Job-level permissions REPLACE the default above, so read is repeated.
     permissions:
       contents: read
-      pages: write
-      id-token: write
+      pages: write                # publish the site
+      id-token: write             # prove to Pages who is deploying
+    # An environment records every deployment and its URL. Adding
+    # "required reviewers" to it (Settings > Environments) would demand
+    # a manual approval: continuous deployment -> continuous delivery.
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}  # link on the run page
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -80,14 +135,21 @@ jobs:
           python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements-dev.txt
+
       - name: Install dev dependencies
         run: python -m pip install -r requirements-dev.txt
+
+      # Writes the HTML coverage report into the htmlcov/ folder.
       - name: Build the coverage site
         run: pytest --cov=calculator --cov-report=html
+
       - name: Upload site for GitHub Pages
         uses: actions/upload-pages-artifact@v5
         with:
           path: htmlcov/
+
+      # "id:" names this step so other lines can read its outputs
+      # (the environment URL above uses steps.deployment.outputs).
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
