@@ -1,5 +1,4 @@
 """Tiny module used for the GitHub Actions CI/CD demo."""
-import os
 
 def add(a: float, b: float) -> float:
     """Return the sum of a and b."""
