@@ -1,6 +1,6 @@
 import pytest
 
-from calculator import add, divide, fizzbuzz, is_palindrome, multiply
+from calculator import add, divide, fizzbuzz, is_palindrome
 
 
 def test_add():
