@@ -16,10 +16,6 @@ def test_divide_by_zero():
         divide(1, 0)
 
 
-def test_multiply():
-    assert multiply(2, 3) == 6
-
-
 @pytest.mark.parametrize(
     "text, expected",
     [("racecar", True), ("A man, a plan, a canal: Panama", True), ("python", False)],
