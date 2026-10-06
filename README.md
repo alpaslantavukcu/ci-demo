@@ -1,7 +1,5 @@
 # ci-demo
 
-![CI](https://github.com/OWNER/ci-demo/actions/workflows/ci.yml/badge.svg)
-
 A tiny Python project used to demonstrate continuous integration and
 continuous deployment with GitHub Actions.
 
